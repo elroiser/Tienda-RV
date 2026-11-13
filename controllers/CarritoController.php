@@ -49,10 +49,8 @@ class CarritoController
                 $claveUnica = $idProducto;
 
                 if (isset($_SESSION['carrito'][$claveUnica])) {
-                    // Si ya existe, sumamos la cantidad
                     $_SESSION['carrito'][$claveUnica]['cantidad'] += $cantidad;
                 } else {
-                    // Si no existe, lo creamos nuevo
                     $_SESSION['carrito'][$claveUnica] = [
                         'id' => $idProducto,
                         'nombre_base' => $nombreBase,
@@ -63,7 +61,18 @@ class CarritoController
                     ];
                 }
 
-                echo json_encode(['status' => 'success', 'mensaje' => 'Producto añadido correctamente']);
+                // Calcular la cantidad total de artículos sumando las cantidades de cada producto
+                $totalItems = 0;
+                foreach ($_SESSION['carrito'] as $item) {
+                    $totalItems += $item['cantidad'];
+                }
+
+                // Devolver el estado con el total de items actualizado para el badge
+                echo json_encode([
+                    'status' => 'success',
+                    'mensaje' => 'Producto añadido correctamente',
+                    'total_items' => $totalItems
+                ]);
                 exit;
             }
         }
@@ -185,16 +194,24 @@ class CarritoController
                 // 3. Insertar los detalles de los productos del carrito
                 $stmtDetalle = $conn->prepare("INSERT INTO detalle_pedidos (pedido_id, producto_id, cantidad, precio_unitario) VALUES (?, ?, ?, ?)");
 
+                // NUEVO: Preparar la consulta para restar el stock de la base de datos
+                $stmtStock = $conn->prepare("UPDATE productos SET stock = stock - ? WHERE id = ?");
+
                 foreach ($carrito as $item) {
+                    // Guardar el detalle del pedido
                     $stmtDetalle->execute([
                         $pedidoId,
                         $item['id'],
                         $item['cantidad'],
                         $item['precio']
                     ]);
+
+                    // 🔥 REDUCIR EL STOCK DEL INVENTARIO AUTOMÁTICAMENTE
+                    $stmtStock->execute([
+                        $item['cantidad'],
+                        $item['id']
+                    ]);
                 }
-
-
 
                 /// 🔥 CREAR MENSAJE PARA WHATSAPP
                 $telefonoPapa = "593968865893"; // El número de tu papá
@@ -222,31 +239,40 @@ class CarritoController
                 // Guardar la URL de WhatsApp en una sesión temporal
                 $_SESSION['whatsapp_url'] = "https://wa.me/" . $telefonoPapa . "?text=" . urlencode($textoWa);
 
-                // --- INICIO DE NOTIFICACIÓN FIREBASE ---
+                // --- INICIO DE NOTIFICACIÓN FIREBASE BLINDADA ---
                 try {
                     $factory = (new Factory)->withServiceAccount(__DIR__ . '/../tienda-rv-b288dc407207.json');
                     $messaging = $factory->createMessaging();
 
                     // Consultamos todos los tokens de los administradores guardados en MySQL
-                    $stmtTokens = $conn->prepare("SELECT token FROM admin_tokens");
+                    $stmtTokens = $conn->prepare("SELECT id, token FROM admin_tokens");
                     $stmtTokens->execute();
-                    $tokensAdmins = $stmtTokens->fetchAll(PDO::FETCH_COLUMN);
+                    $adminsTokens = $stmtTokens->fetchAll(PDO::FETCH_ASSOC);
 
-                    if (!empty($tokensAdmins)) {
-                        foreach ($tokensAdmins as $deviceToken) {
-                            $mensaje = CloudMessage::withTarget('token', $deviceToken)
-                                ->withNotification(Notification::create(
-                                    "¡Nuevo Pedido #" . $pedidoId . "!",
-                                    $nombre . " acaba de hacer una compra por $" . number_format($totalGeneral, 2)
-                                ));
+                    if (!empty($adminsTokens)) {
+                        foreach ($adminsTokens as $adminToken) {
+                            try {
+                                // Enviamos la notificación de manera independiente a cada token
+                                $mensaje = CloudMessage::withTarget('token', $adminToken['token'])
+                                    ->withNotification(Notification::create(
+                                        "¡Nuevo Pedido #" . $pedidoId . "!",
+                                        $nombre . " acaba de hacer una compra por $" . number_format($totalGeneral, 2)
+                                    ));
 
-                            $messaging->send($mensaje);
+                                $messaging->send($mensaje);
+                            } catch (\Exception $exToken) {
+                                // Si un token específico es inválido o expiró, lo registramos pero el bucle sigue con los demás
+                                error_log("Fallo al enviar notificación al token ID " . $adminToken['id'] . ": " . $exToken->getMessage());
+
+                                // Opcional: Si quieres limpiar automáticamente los tokens vencidos de la BD, puedes descomentar la siguiente línea:
+                                // $conn->prepare("DELETE FROM admin_tokens WHERE id = ?")->execute([$adminToken['id']]);
+                            }
                         }
                     }
                 } catch (Exception $e) {
-                    error_log("Error de Firebase: " . $e->getMessage());
+                    error_log("Error general de Firebase: " . $e->getMessage());
                 }
-                // --- FIN DE NOTIFICACIÓN FIREBASE ---
+                // --- FIN DE NOTIFICACIÓN FIREBASE BLINDADA ---
 
                 // Confirmar transacción en la base de datos
                 $conn->commit();
@@ -275,6 +301,209 @@ class CarritoController
                 // Si solo queda 1, lo eliminamos por completo del carrito
                 unset($_SESSION['carrito'][$id]);
             }
+        }
+        header("Location: index.php?action=carrito");
+        exit();
+    }
+
+    // Mostrar los pedidos del cliente logueado
+    // Mostrar los pedidos del cliente logueado con su desglose detallado
+    public function misPedidos()
+    {
+        if (!isset($_SESSION['cliente_id'])) {
+            header("Location: index.php?action=login&redirect=misPedidos");
+            exit();
+        }
+
+        require_once 'config/db.php';
+        $db = new Database();
+        $conn = $db->connect();
+
+        // Consultar los pedidos del cliente
+        $stmt = $conn->prepare("SELECT * FROM pedidos WHERE cliente_id = ? ORDER BY id DESC");
+        $stmt->execute([$_SESSION['cliente_id']]);
+        $pedidos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Obtener el detalle exacto de productos para cada pedido
+        $stmtDetalle = $conn->prepare("
+            SELECT dp.*, pr.nombre AS producto_nombre, pr.imagen, pr.estado AS producto_activo
+            FROM detalle_pedidos dp
+            JOIN productos pr ON dp.producto_id = pr.id
+            WHERE dp.pedido_id = ?
+        ");
+
+        foreach ($pedidos as &$pedido) {
+            $stmtDetalle->execute([$pedido['id']]);
+            $pedido['detalles'] = $stmtDetalle->fetchAll(PDO::FETCH_ASSOC);
+        }
+        unset($pedido);
+
+        require_once 'views/mis_pedidos.php';
+    }
+
+    // Volver a pedir: cargar todos los productos de una orden pasada al carrito actual
+    public function repetirPedido()
+    {
+        if (!isset($_SESSION['cliente_id'])) {
+            header("Location: index.php?action=login&redirect=misPedidos");
+            exit();
+        }
+
+        $pedidoId = intval($_GET['id'] ?? 0);
+        if ($pedidoId <= 0) {
+            header("Location: index.php?action=misPedidos");
+            exit();
+        }
+
+        require_once 'config/db.php';
+        $db = new Database();
+        $conn = $db->connect();
+
+        // Verificar que el pedido realmente pertenezca al cliente logueado
+        $stmtCheck = $conn->prepare("SELECT id FROM pedidos WHERE id = ? AND cliente_id = ?");
+        $stmtCheck->execute([$pedidoId, $_SESSION['cliente_id']]);
+        if (!$stmtCheck->fetch()) {
+            header("Location: index.php?action=misPedidos");
+            exit();
+        }
+
+        // Obtener los productos activos con su precio actual en catálogo
+        $stmtItems = $conn->prepare("
+            SELECT dp.producto_id, dp.cantidad, pr.nombre, pr.precio
+            FROM detalle_pedidos dp
+            JOIN productos pr ON dp.producto_id = pr.id
+            WHERE dp.pedido_id = ? AND pr.estado = 1
+        ");
+        $stmtItems->execute([$pedidoId]);
+        $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!empty($items)) {
+            if (!isset($_SESSION['carrito'])) {
+                $_SESSION['carrito'] = [];
+            }
+
+            foreach ($items as $item) {
+                $idProd = $item['producto_id'];
+                $nombreCompleto = $item['nombre'];
+
+                // Extraer presentación entre paréntesis para mantener compatibilidad con carrito.php
+                $pos = strrpos($nombreCompleto, '(');
+                if ($pos !== false) {
+                    $nombreBase = trim(substr($nombreCompleto, 0, $pos));
+                    $presentacion = trim(substr($nombreCompleto, $pos + 1, -1));
+                } else {
+                    $nombreBase = trim($nombreCompleto);
+                    $presentacion = "Unidad";
+                }
+
+                if (isset($_SESSION['carrito'][$idProd])) {
+                    $_SESSION['carrito'][$idProd]['cantidad'] += intval($item['cantidad']);
+                } else {
+                    $_SESSION['carrito'][$idProd] = [
+                        'id' => $idProd,
+                        'nombre_base' => $nombreBase,
+                        'aroma' => '',
+                        'presentacion' => $presentacion,
+                        'precio' => floatval($item['precio']),
+                        'cantidad' => intval($item['cantidad'])
+                    ];
+                }
+            }
+        }
+
+        header("Location: index.php?action=carrito");
+        exit();
+    }
+
+    // Mostrar la vista de Mi Perfil con los datos del cliente
+    public function miPerfil()
+    {
+        if (!isset($_SESSION['cliente_id'])) {
+            header("Location: index.php?action=login");
+            exit();
+        }
+
+        require_once 'config/db.php';
+        $db = new Database();
+        $conn = $db->connect();
+
+        $stmt = $conn->prepare("SELECT * FROM clientes WHERE id = ?");
+        $stmt->execute([$_SESSION['cliente_id']]);
+        $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        require_once 'views/mi_perfil.php';
+    }
+
+    // Actualizar los datos del perfil en la base de datos
+    public function actualizarPerfil()
+    {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['cliente_id'])) {
+            $nombre = trim($_POST['nombre'] ?? '');
+            $telefono = trim($_POST['telefono'] ?? '');
+            $direccion = trim($_POST['direccion'] ?? '');
+
+            require_once 'config/db.php';
+            $db = new Database();
+            $conn = $db->connect();
+
+            $stmt = $conn->prepare("UPDATE clientes SET nombre = ?, telefono = ?, direccion = ? WHERE id = ?");
+            $stmt->execute([$nombre, $telefono, $direccion, $_SESSION['cliente_id']]);
+
+            // Actualizar el nombre en la sesión actual
+            $_SESSION['cliente_nombre'] = $nombre;
+
+            header("Location: index.php?action=miPerfil&actualizado=1");
+            exit();
+        }
+    }
+    // Procesar el cambio de contraseña del cliente
+    public function cambiarPassword()
+    {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['cliente_id'])) {
+            $passwordActual = $_POST['password_actual'] ?? '';
+            $passwordNueva = $_POST['password_nueva'] ?? '';
+            $passwordConfirmar = $_POST['password_confirmar'] ?? '';
+
+            if (empty($passwordActual) || empty($passwordNueva) || empty($passwordConfirmar)) {
+                header("Location: index.php?action=miPerfil&error=campos_vacios");
+                exit();
+            }
+
+            if ($passwordNueva !== $passwordConfirmar) {
+                header("Location: index.php?action=miPerfil&error=no_coinciden");
+                exit();
+            }
+
+            require_once 'config/db.php';
+            $db = new Database();
+            $conn = $db->connect();
+
+            // Consultar la contraseña actual almacenada
+            $stmt = $conn->prepare("SELECT password FROM clientes WHERE id = ?");
+            $stmt->execute([$_SESSION['cliente_id']]);
+            $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($cliente && password_verify($passwordActual, $cliente['password'])) {
+                // Encriptar la nueva contraseña
+                $nuevaHash = password_hash($passwordNueva, PASSWORD_DEFAULT);
+
+                $stmtUpdate = $conn->prepare("UPDATE clientes SET password = ? WHERE id = ?");
+                $stmtUpdate->execute([$nuevaHash, $_SESSION['cliente_id']]);
+
+                header("Location: index.php?action=miPerfil&password_cambiada=1");
+                exit();
+            } else {
+                header("Location: index.php?action=miPerfil&error=password_incorrecta");
+                exit();
+            }
+        }
+    }
+    // Aumentar en 1 la cantidad de un producto del carrito
+    public function aumentarCantidad()
+    {
+        $id = $_GET['id'] ?? null;
+        if ($id && isset($_SESSION['carrito'][$id])) {
+            $_SESSION['carrito'][$id]['cantidad']++;
         }
         header("Location: index.php?action=carrito");
         exit();

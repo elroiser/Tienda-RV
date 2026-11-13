@@ -28,8 +28,23 @@ switch ($action) {
     case 'carrito':
         $carritoController->index();
         break;
+    case 'misPedidos':
+        $carritoController->misPedidos();
+        break;
+    case 'repetirPedido':
+        $carritoController->repetirPedido();
+        break;
     case 'agregarCarrito':
         $carritoController->agregar();
+        break;
+    case 'miPerfil':
+        $carritoController->miPerfil();
+        break;
+    case 'actualizarPerfil':
+        $carritoController->actualizarPerfil();
+        break;
+    case 'cambiarPassword':
+        $carritoController->cambiarPassword();
         break;
     case 'eliminarCarrito':
         $carritoController->eliminar();
@@ -83,6 +98,11 @@ switch ($action) {
         $controller = new CarritoController();
         $controller->disminuirCantidad();
         break;
+    case 'aumentarCarrito':
+        $controller = new CarritoController();
+        $controller->aumentarCantidad();
+        break;
+        
 
     default:
         $controller->home();

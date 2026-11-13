@@ -109,7 +109,6 @@ function agregarAlCarrito() {
         textoAroma = selectAroma.options[selectAroma.selectedIndex].text;
     }
 
-    // Datos que enviaremos por POST al servidor
     const formData = new URLSearchParams();
     formData.append('id_producto', idSeleccionado);
     formData.append('nombre_base', nombreBase);
@@ -118,7 +117,7 @@ function agregarAlCarrito() {
     formData.append('precio', precio);
     formData.append('cantidad', 1);
 
-    // Petición AJAX para guardar en sesión
+    // Petición AJAX sin recargar la página
     fetch('index.php?action=agregarCarrito', {
         method: 'POST',
         headers: {
@@ -129,15 +128,56 @@ function agregarAlCarrito() {
     .then(response => response.json())
     .then(data => {
         if(data.status === 'success') {
-            cerrarModal();
-            // Redirigir de inmediato al carrito o mostrar notificación bonita
-            window.location.href = 'index.php?action=carrito';
+            cerrarModal(); // Cierra el modal y te deja en el catálogo de productos
+
+            // Actualizar el número del carrito en la esquina superior derecha en tiempo real
+            actualizarContadorCarrito(data.total_items);
+
+            // Opcional: Mostrar un aviso flotante elegante de éxito si lo deseas
         } else {
             alert('Hubo un error al agregar el producto.');
         }
     })
     .catch(error => {
         console.error('Error:', error);
+    });
+}
+
+// Función auxiliar para actualizar dinámicamente el círculo rojo del icono del carrito
+function actualizarContadorCarrito(cantidadTotal) {
+    // Actualizamos tanto el badge móvil como el de escritorio
+    ['contadorCarritoMobile', 'contadorCarritoDesktop'].forEach(id => {
+        let badge = document.getElementById(id);
+        if (badge) {
+            badge.innerText = cantidadTotal;
+            if (cantidadTotal > 0) {
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+    });
+}
+
+const buscadorInput = document.getElementById('buscadorProductos');
+if (buscadorInput) {
+    buscadorInput.addEventListener('input', function(e) {
+        const textoBusqueda = e.target.value
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .trim();
+
+        const tarjetas = document.querySelectorAll('.tarjeta-producto');
+
+        tarjetas.forEach(tarjeta => {
+            const nombreProducto = tarjeta.getAttribute('data-nombre') || '';
+            if (nombreProducto.includes(textoBusqueda)) {
+                tarjeta.style.display = 'flex';
+            } else {
+                tarjeta.style.display = 'none';
+            }
+        });
     });
 }
 

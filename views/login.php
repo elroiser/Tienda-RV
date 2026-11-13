@@ -38,6 +38,7 @@ $error = $_GET['error'] ?? null;
                     <input type="email" name="email" required placeholder="tu@correo.com" class="w-full pl-11 p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium text-slate-800">
                 </div>
             </div>
+            
 
             <div>
                 <label class="block text-sm font-semibold text-slate-700 mb-1">Contraseña</label>

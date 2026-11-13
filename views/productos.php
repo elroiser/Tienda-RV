@@ -9,6 +9,17 @@ require_once 'views/includes/header.php';
     <p class="text-slate-600 mt-1">Línea completa Chemlook. Selecciona un producto para ver sus presentaciones.</p>
 </div>
 
+<!-- Input de Búsqueda en Tiempo Real -->
+<div class="mb-6">
+    <div class="relative max-w-md">
+        <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+            <i class="fa-solid fa-magnifying-glass"></i>
+        </span>
+        <input type="text" id="buscadorProductos" placeholder="Buscar producto por nombre (ej. cloro, suavizante)..."
+            class="w-full pl-10 pr-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-slate-800 font-medium shadow-sm">
+    </div>
+</div>
+
 <!-- Grid de Productos -->
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-12">
 
@@ -20,7 +31,10 @@ require_once 'views/includes/header.php';
     <?php else: ?>
 
         <?php foreach ($productos as $index => $prod): ?>
-
+            <?php
+            $nombreLimpio = mb_strtolower($prod['nombre_base'], 'UTF-8');
+            $nombreSinAcentos = strtr($nombreLimpio, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u']);
+            ?>
             <div class="product-card flex flex-col h-full bg-white">
                 <div class="relative h-56 bg-slate-100 flex items-center justify-center p-4 border-b border-slate-100 overflow-hidden group">
                     <?php if (!empty($prod['categoria'])): ?>
@@ -131,5 +145,5 @@ require_once 'views/includes/header.php';
                 </div>
 
                 <!-- Importamos el script de lógica del modal -->
-                <script src="public/js/productos.js"></script>
+                <script src="public/js/productos.js?v=4"></script>
                 <?php require_once 'views/includes/footer.php'; ?>

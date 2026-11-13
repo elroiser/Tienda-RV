@@ -51,6 +51,15 @@
                                     <p class="text-lg font-extrabold text-teal-700">$<?php echo number_format($item['precio'] * $item['cantidad'], 2); ?></p>
                                 </div>
 
+                                <!-- NUEVO: Botón para aumentar de 1 en 1 -->
+                                <a href="index.php?action=aumentarCarrito&id=<?php echo $item['id']; ?>" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors" title="Sumar uno">
+                                    <i class="fa-solid fa-plus"></i>
+                                </a>
+
+                                <div class="text-right min-w-[70px]">
+                                    <p class="text-lg font-extrabold text-teal-700">$<?php echo number_format($item['precio'] * $item['cantidad'], 2); ?></p>
+                                </div>
+
                                 <!-- Botón de eliminar todo el producto -->
                                 <a href="index.php?action=eliminarCarrito&id=<?php echo $item['id']; ?>" class="text-slate-400 hover:text-rose-500 transition-colors p-2" title="Eliminar producto">
                                     <i class="fa-solid fa-trash-can text-base"></i>
