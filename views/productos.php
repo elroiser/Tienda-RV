@@ -9,8 +9,8 @@ require_once 'views/includes/header.php';
     <p class="text-slate-600 mt-1">Línea completa Chemlook. Selecciona un producto para ver sus presentaciones.</p>
 </div>
 
-<!-- Input de Búsqueda en Tiempo Real -->
-<div class="mb-6">
+<!-- Barra de Búsqueda y Filtros por Categoría -->
+<div class="mb-6 space-y-4">
     <div class="relative max-w-md">
         <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
             <i class="fa-solid fa-magnifying-glass"></i>
@@ -18,7 +18,38 @@ require_once 'views/includes/header.php';
         <input type="text" id="buscadorProductos" placeholder="Buscar producto por nombre (ej. cloro, suavizante)..."
             class="w-full pl-10 pr-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-slate-800 font-medium shadow-sm">
     </div>
+
+    <?php
+    // Extraer categorías únicas automáticamente desde los productos cargados
+    $categoriasDisponibles = [];
+    if (!empty($productos)) {
+        foreach ($productos as $p) {
+            if (!empty($p['categoria']) && !in_array($p['categoria'], $categoriasDisponibles)) {
+                $categoriasDisponibles[] = $p['categoria'];
+            }
+        }
+        sort($categoriasDisponibles);
+    }
+    ?>
+
+    <!-- Botones de Filtro Rápido por Categoría -->
+    <?php if (!empty($categoriasDisponibles)): ?>
+        <div id="filtrosCategoria" class="flex flex-wrap items-center gap-2 pt-1">
+            <button type="button" data-categoria="todas"
+                class="btn-categoria bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-sm transition-all cursor-pointer">
+                Todos
+            </button>
+
+            <?php foreach ($categoriasDisponibles as $cat): ?>
+                <button type="button" data-categoria="<?php echo htmlspecialchars(mb_strtolower($cat, 'UTF-8')); ?>"
+                    class="btn-categoria bg-white hover:bg-teal-50 text-slate-700 border border-slate-200 px-4 py-2 rounded-full text-sm font-semibold transition-all cursor-pointer">
+                    <?php echo htmlspecialchars($cat); ?>
+                </button>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 </div>
+
 
 <!-- Grid de Productos -->
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-12">
@@ -32,10 +63,9 @@ require_once 'views/includes/header.php';
 
         <?php foreach ($productos as $index => $prod): ?>
             <?php
-            $nombreLimpio = mb_strtolower($prod['nombre_base'], 'UTF-8');
-            $nombreSinAcentos = strtr($nombreLimpio, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u']);
+            $catTarjeta = !empty($prod['categoria']) ? mb_strtolower($prod['categoria'], 'UTF-8') : '';
             ?>
-            <div class="product-card flex flex-col h-full bg-white">
+            <div class="product-card flex flex-col h-full bg-white" data-categoria="<?php echo htmlspecialchars($catTarjeta); ?>">
                 <div class="relative h-56 bg-slate-100 flex items-center justify-center p-4 border-b border-slate-100 overflow-hidden group">
                     <?php if (!empty($prod['categoria'])): ?>
                         <span class="absolute top-3 left-3 bg-white/90 backdrop-blur text-xs font-bold px-2 py-1 rounded text-teal-800 border border-teal-100 shadow-sm z-10">
@@ -64,9 +94,6 @@ require_once 'views/includes/header.php';
                     </h3>
 
                     <div class="flex items-center justify-end mt-auto gap-2">
-                        <!-- El precio fue removido de aquí a petición tuya -->
-
-                        <!-- Pasamos todos los datos del producto en formato JSON a la función JavaScript -->
                         <button
                             onclick='abrirModalProducto(<?php echo json_encode($prod, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'
                             class="w-full bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-lg flex items-center justify-center transition-colors shadow-sm text-sm font-bold">
@@ -82,15 +109,13 @@ require_once 'views/includes/header.php';
 </div>
 
 
-<!-- VENTANA FLOTANTE (MODAL) OCULTA POR DEFECTO -->
-<!-- VENTANA FLOTANTE (MODAL) ESTILO TAILWIND OFICIAL -->
-<!-- VENTANA FLOTANTE (MODAL) CORREGIDA -->
+<!-- VENTANA FLOTANTE (MODAL) -->
 <div id="productoModal" class="relative z-[100] hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
 
     <!-- Fondo oscuro (Backdrop) -->
     <div id="modalBackdrop" class="fixed inset-0 bg-slate-900/75 backdrop-blur-sm transition-opacity opacity-0"></div>
 
-    <!-- Contenedor del Modal (SIN w-screen) -->
+    <!-- Contenedor del Modal -->
     <div class="fixed inset-0 z-10 overflow-y-auto">
         <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
 
@@ -119,18 +144,16 @@ require_once 'views/includes/header.php';
                         </div>
                     </div>
 
-                    <!-- NUEVO: Contenedor de Aroma (Oculto por defecto) -->
+                    <!-- Contenedor de Aroma (Oculto por defecto) -->
                     <div id="contenedorAroma" class="mb-4 hidden">
                         <label class="block text-sm font-semibold text-slate-700 mb-2">Aroma / Fragancia</label>
                         <select id="modalSelectAroma" onchange="cambiarAroma()" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none bg-white shadow-sm font-medium text-slate-800 cursor-pointer">
-                            <!-- Opciones inyectadas por JS -->
                         </select>
                     </div>
 
                     <!-- Contenedor de Presentación -->
                     <label class="block text-sm font-semibold text-slate-700 mb-2">Tamaño / Presentación</label>
                     <select id="modalSelectPresentacion" onchange="actualizarPrecioModal()" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all cursor-pointer font-medium text-slate-800 bg-white shadow-sm">
-                        <!-- Opciones inyectadas por JS -->
                     </select>
 
                     <div class="mt-8 flex items-end justify-between bg-slate-50 p-5 rounded-xl border border-slate-100">
@@ -144,6 +167,11 @@ require_once 'views/includes/header.php';
                     </div>
                 </div>
 
-                <!-- Importamos el script de lógica del modal -->
-                <script src="public/js/productos.js?v=4"></script>
-                <?php require_once 'views/includes/footer.php'; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Importamos el script de lógica del modal, buscador y categorías -->
+<script src="public/js/productos.js?v=5"></script>
+<?php require_once 'views/includes/footer.php'; ?>
