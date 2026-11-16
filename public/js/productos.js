@@ -3,47 +3,62 @@
 const modal = document.getElementById('productoModal');
 const modalBackdrop = document.getElementById('modalBackdrop');
 const modalContent = document.getElementById('modalContent');
-let productoActual = null; // Guardará todos los datos del producto abierto
+let productoActual = null;
 
 if (modal) {
     document.body.appendChild(modal);
+}
+
+function mostrarToastCatalogo(mensaje, tipo = 'success') {
+    const toast = document.getElementById('toastCatalogo');
+    const icono = document.getElementById('toastIcono');
+    const texto = document.getElementById('toastMensaje');
+    if (!toast) return;
+
+    texto.innerText = mensaje;
+    if (tipo === 'error') {
+        icono.className = 'fa-solid fa-circle-exclamation text-rose-400 text-lg';
+    } else {
+        icono.className = 'fa-solid fa-circle-check text-emerald-400 text-lg';
+    }
+
+    toast.classList.remove('hidden');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+        toast.classList.add('hidden');
+    }, 3500);
 }
 
 function abrirModalProducto(producto) {
     productoActual = producto;
     document.body.style.overflow = 'hidden';
 
-    // Rellenar datos base
     document.getElementById('modalNombreBase').innerText = producto.nombre_base;
     document.getElementById('modalCategoria').innerText = producto.categoria;
     
     let rutaImg = 'public/img/productos/' + (producto.imagen ? producto.imagen : 'default.png');
     document.getElementById('modalImagen').src = rutaImg;
 
-    // Configurar Selector de Aromas
     const contenedorAroma = document.getElementById('contenedorAroma');
     const selectAroma = document.getElementById('modalSelectAroma');
     selectAroma.innerHTML = '';
 
-    // Si solo hay un aroma y es "Estándar", ocultamos la caja de aroma
     if (producto.variantes.length === 1 && producto.variantes[0].aroma === 'Estándar') {
         contenedorAroma.classList.add('hidden');
     } else {
         contenedorAroma.classList.remove('hidden');
     }
 
-    // Llenar los aromas disponibles
     producto.variantes.forEach((variante, index) => {
         let option = document.createElement('option');
-        option.value = index; // Guardamos el número de posición
-        option.text = variante.aroma;
+        option.value = index;
+        const tieneStock = variante.presentaciones.some(p => parseInt(p.stock || 0) > 0);
+        option.text = tieneStock ? variante.aroma : `${variante.aroma} (Agotado)`;
         selectAroma.appendChild(option);
     });
 
-    // Cargar las presentaciones del primer aroma por defecto
     cambiarAroma();
 
-    // Mostrar Modal
     modal.classList.remove('hidden');
     setTimeout(() => {
         modalBackdrop.classList.remove('opacity-0');
@@ -51,25 +66,27 @@ function abrirModalProducto(producto) {
     }, 10);
 }
 
-// Se ejecuta cuando el usuario cambia de aroma o al abrir el modal
 function cambiarAroma() {
     const selectAroma = document.getElementById('modalSelectAroma');
     const selectPresentacion = document.getElementById('modalSelectPresentacion');
     
-    // Obtener la variante seleccionada basada en su posición
     const indexAroma = selectAroma.value;
     const varianteSeleccionada = productoActual.variantes[indexAroma];
     
     selectPresentacion.innerHTML = '';
 
-    // Ordenar presentaciones de mayor a menor precio (Galón primero)
     let presentacionesOrdenadas = [...varianteSeleccionada.presentaciones].sort((a, b) => b.precio - a.precio);
 
     presentacionesOrdenadas.forEach(pres => {
         let option = document.createElement('option');
-        option.value = pres.precio; 
-        option.text = `${pres.tipo} - $${parseFloat(pres.precio).toFixed(2)}`;
-        option.dataset.id = pres.id; 
+        const stockDisp = parseInt(pres.stock || 0);
+        option.value = pres.precio;
+        option.dataset.id = pres.id;
+        option.dataset.stock = stockDisp;
+        option.dataset.tipo = pres.tipo;
+        option.text = stockDisp > 0
+            ? `${pres.tipo} - $${parseFloat(pres.precio).toFixed(2)}`
+            : `${pres.tipo} - $${parseFloat(pres.precio).toFixed(2)} (Sin stock)`;
         selectPresentacion.appendChild(option);
     });
 
@@ -78,9 +95,42 @@ function cambiarAroma() {
 
 function actualizarPrecioModal() {
     const selectPresentacion = document.getElementById('modalSelectPresentacion');
-    if(selectPresentacion.value) {
-        const precioSeleccionado = parseFloat(selectPresentacion.value).toFixed(2);
-        document.getElementById('modalPrecioFinal').innerText = '$' + precioSeleccionado;
+    const opcion = selectPresentacion.options[selectPresentacion.selectedIndex];
+    if (!opcion) return;
+
+    const precioSeleccionado = parseFloat(opcion.value).toFixed(2);
+    const stock = parseInt(opcion.dataset.stock || 0);
+
+    document.getElementById('modalPrecioFinal').innerText = '$' + precioSeleccionado;
+
+    const boxStock = document.getElementById('modalEstadoStock');
+    const txtStock = document.getElementById('modalTextoStock');
+    const btnAgregar = document.getElementById('btnAgregarModal');
+
+    if (stock <= 0) {
+        boxStock.className = 'mt-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 bg-rose-50 text-rose-700 border border-rose-200';
+        boxStock.querySelector('i').className = 'fa-solid fa-circle-xmark';
+        txtStock.innerText = 'Producto agotado temporalmente en esta presentación.';
+
+        btnAgregar.disabled = true;
+        btnAgregar.className = 'bg-slate-300 text-slate-500 px-6 py-3 rounded-xl font-bold flex items-center cursor-not-allowed';
+        btnAgregar.innerHTML = '<i class="fa-solid fa-ban mr-2"></i> Sin stock';
+    } else if (stock <= 5) {
+        boxStock.className = 'mt-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 bg-amber-50 text-amber-800 border border-amber-200';
+        boxStock.querySelector('i').className = 'fa-solid fa-triangle-exclamation';
+        txtStock.innerText = `¡Últimas unidades! Solo quedan ${stock} disponibles.`;
+
+        btnAgregar.disabled = false;
+        btnAgregar.className = 'bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-xl font-bold flex items-center shadow-md transition-all cursor-pointer';
+        btnAgregar.innerHTML = '<i class="fa-solid fa-cart-shopping mr-2"></i> Añadir';
+    } else {
+        boxStock.className = 'mt-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200';
+        boxStock.querySelector('i').className = 'fa-solid fa-circle-check';
+        txtStock.innerText = `En stock (${stock} unidades disponibles)`;
+
+        btnAgregar.disabled = false;
+        btnAgregar.className = 'bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-xl font-bold flex items-center shadow-md transition-all cursor-pointer';
+        btnAgregar.innerHTML = '<i class="fa-solid fa-cart-shopping mr-2"></i> Añadir';
     }
 }
 
@@ -99,14 +149,22 @@ function agregarAlCarrito() {
     const selectAroma = document.getElementById('modalSelectAroma');
     const contenedorAroma = document.getElementById('contenedorAroma');
 
-    const idSeleccionado = selectPresentacion.options[selectPresentacion.selectedIndex].dataset.id;
+    const opcionActual = selectPresentacion.options[selectPresentacion.selectedIndex];
+    const idSeleccionado = opcionActual.dataset.id;
+    const stockDisponible = parseInt(opcionActual.dataset.stock || 0);
+
+    if (stockDisponible <= 0) {
+        mostrarToastCatalogo('Este producto no tiene stock disponible.', 'error');
+        return;
+    }
+
     const nombreBase = document.getElementById('modalNombreBase').innerText;
-    const presentacion = selectPresentacion.options[selectPresentacion.selectedIndex].text.split(' - ')[0]; 
+    const presentacion = opcionActual.dataset.tipo || opcionActual.text.split(' - ')[0];
     const precio = selectPresentacion.value;
     
     let textoAroma = "Estándar";
     if (!contenedorAroma.classList.contains('hidden')) {
-        textoAroma = selectAroma.options[selectAroma.selectedIndex].text;
+        textoAroma = selectAroma.options[selectAroma.selectedIndex].text.replace(' (Agotado)', '');
     }
 
     const formData = new URLSearchParams();
@@ -117,7 +175,6 @@ function agregarAlCarrito() {
     formData.append('precio', precio);
     formData.append('cantidad', 1);
 
-    // Petición AJAX sin recargar la página
     fetch('index.php?action=agregarCarrito', {
         method: 'POST',
         headers: {
@@ -127,25 +184,21 @@ function agregarAlCarrito() {
     })
     .then(response => response.json())
     .then(data => {
-        if(data.status === 'success') {
-            cerrarModal(); // Cierra el modal y te deja en el catálogo de productos
-
-            // Actualizar el número del carrito en la esquina superior derecha en tiempo real
+        if (data.status === 'success') {
+            cerrarModal();
             actualizarContadorCarrito(data.total_items);
-
-            // Opcional: Mostrar un aviso flotante elegante de éxito si lo deseas
+            mostrarToastCatalogo('Producto añadido al carrito', 'success');
         } else {
-            alert('Hubo un error al agregar el producto.');
+            mostrarToastCatalogo(data.mensaje || 'No hay suficiente stock disponible.', 'error');
         }
     })
     .catch(error => {
         console.error('Error:', error);
+        mostrarToastCatalogo('Error de conexión al añadir el producto.', 'error');
     });
 }
 
-// Función auxiliar para actualizar dinámicamente el círculo rojo del icono del carrito
 function actualizarContadorCarrito(cantidadTotal) {
-    // Actualizamos tanto el badge móvil como el de escritorio
     ['contadorCarritoMobile', 'contadorCarritoDesktop'].forEach(id => {
         let badge = document.getElementById(id);
         if (badge) {
@@ -194,7 +247,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Evento al escribir en el buscador
     if (buscadorInput) {
         buscadorInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter') e.preventDefault();
@@ -202,12 +254,10 @@ document.addEventListener('DOMContentLoaded', function() {
         buscadorInput.addEventListener('input', filtrarCatalogo);
     }
 
-    // Evento al hacer clic en los botones de categoría
     botonesCategoria.forEach(boton => {
         boton.addEventListener('click', function() {
             categoriaActiva = this.getAttribute('data-categoria');
 
-            // Actualizar estilos visuales de botón activo vs inactivo
             botonesCategoria.forEach(btn => {
                 btn.classList.remove('bg-teal-600', 'text-white', 'font-bold', 'shadow-sm');
                 btn.classList.add('bg-white', 'hover:bg-teal-50', 'text-slate-700', 'border', 'border-slate-200', 'font-semibold');

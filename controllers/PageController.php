@@ -82,9 +82,13 @@ class PageController
                     'categoria' => $prod['categoria_nombre'],
                     'imagen' => $prod['imagen'],
                     'precio_min' => $prod['precio'],
+                    'stock_total' => 0,
                     'variantes' => []
                 ];
             }
+
+            $stockActual = max(0, intval($prod['stock']));
+            $productosAgrupados[$key]['stock_total'] += $stockActual;
 
             if ($prod['precio'] < $productosAgrupados[$key]['precio_min']) {
                 $productosAgrupados[$key]['precio_min'] = $prod['precio'];
@@ -97,7 +101,8 @@ class PageController
             $productosAgrupados[$key]['variantes'][$variante][] = [
                 'id' => $prod['id'],
                 'tipo' => $presentacion,
-                'precio' => $prod['precio']
+                'precio' => $prod['precio'],
+                'stock' => $stockActual
             ];
         }
 

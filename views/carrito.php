@@ -6,6 +6,27 @@
         <p class="text-slate-600 mt-1">Revisa tus productos seleccionados antes de confirmar el pedido contra entrega.</p>
     </div>
 
+    <!-- Alertas de control de inventario -->
+    <?php if (isset($_GET['error'])): ?>
+        <div class="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3.5 rounded-xl mb-6 flex items-center gap-3 text-sm font-medium">
+            <i class="fa-solid fa-circle-exclamation text-rose-500 text-lg"></i>
+            <span>
+                <?php
+                if ($_GET['error'] === 'stock_maximo') {
+                    $max = intval($_GET['max'] ?? 0);
+                    echo "Has alcanzado el límite máximo disponible en inventario ({$max} unidades).";
+                } elseif ($_GET['error'] === 'sin_stock') {
+                    $prodNombre = htmlspecialchars($_GET['prod'] ?? 'uno de los productos');
+                    $disp = intval($_GET['disp'] ?? 0);
+                    echo $disp > 0
+                        ? "Stock insuficiente para <b>{$prodNombre}</b>. Actualmente solo quedan <b>{$disp}</b> unidades disponibles; ajusta la cantidad para continuar."
+                        : "Lo sentimos, <b>{$prodNombre}</b> acaba de agotarse. Elimínalo del carrito para continuar con tu compra.";
+                }
+                ?>
+            </span>
+        </div>
+    <?php endif; ?>
+
     <?php if (empty($carrito)): ?>
         <div class="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <i class="fa-solid fa-cart-shopping text-5xl text-slate-300 mb-4"></i>
@@ -30,7 +51,7 @@
                                 <h4 class="font-bold text-slate-800 text-lg"><?php echo htmlspecialchars($item['nombre_base']); ?></h4>
                                 <p class="text-xs text-slate-500 font-medium">
                                     Presentación: <span class="text-teal-700 font-semibold"><?php echo htmlspecialchars($item['presentacion']); ?></span>
-                                    <?php if (!empty($item['aroma'])): ?>
+                                    <?php if (!empty($item['aroma']) && $item['aroma'] !== 'Estándar'): ?>
                                         | Aroma: <span class="text-teal-700 font-semibold"><?php echo htmlspecialchars($item['aroma']); ?></span>
                                     <?php endif; ?>
                                 </p>
@@ -39,28 +60,23 @@
                         </div>
 
                         <div class="flex items-center justify-between w-full sm:w-auto gap-4 border-t sm:border-t-0 pt-3 sm:pt-0">
-                            <span class="text-sm font-medium text-slate-600">Cant: <b><?php echo $item['cantidad']; ?></b></span>
-
-                            <div class="flex items-center gap-2">
-                                <!-- Botón para disminuir de 1 en 1 -->
-                                <a href="index.php?action=disminuirCarrito&id=<?php echo $item['id']; ?>" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors" title="Restar uno">
+                            <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1">
+                                <a href="index.php?action=disminuirCarrito&id=<?php echo $item['id']; ?>" class="bg-white hover:bg-slate-200 text-slate-700 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shadow-xs transition-colors" title="Restar uno">
                                     <i class="fa-solid fa-minus"></i>
                                 </a>
 
-                                <div class="text-right min-w-[70px]">
-                                    <p class="text-lg font-extrabold text-teal-700">$<?php echo number_format($item['precio'] * $item['cantidad'], 2); ?></p>
-                                </div>
+                                <span class="text-sm font-bold text-slate-800 px-2"><?php echo $item['cantidad']; ?></span>
 
-                                <!-- NUEVO: Botón para aumentar de 1 en 1 -->
-                                <a href="index.php?action=aumentarCarrito&id=<?php echo $item['id']; ?>" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors" title="Sumar uno">
+                                <a href="index.php?action=aumentarCarrito&id=<?php echo $item['id']; ?>" class="bg-white hover:bg-slate-200 text-slate-700 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shadow-xs transition-colors" title="Sumar uno">
                                     <i class="fa-solid fa-plus"></i>
                                 </a>
+                            </div>
 
-                                <div class="text-right min-w-[70px]">
+                            <div class="flex items-center gap-3">
+                                <div class="text-right min-w-[75px]">
                                     <p class="text-lg font-extrabold text-teal-700">$<?php echo number_format($item['precio'] * $item['cantidad'], 2); ?></p>
                                 </div>
 
-                                <!-- Botón de eliminar todo el producto -->
                                 <a href="index.php?action=eliminarCarrito&id=<?php echo $item['id']; ?>" class="text-slate-400 hover:text-rose-500 transition-colors p-2" title="Eliminar producto">
                                     <i class="fa-solid fa-trash-can text-base"></i>
                                 </a>

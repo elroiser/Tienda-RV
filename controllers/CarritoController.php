@@ -30,28 +30,56 @@ class CarritoController
     }
 
     // Agregar producto al carrito (vía AJAX o petición POST)
+    // Agregar producto al carrito validando stock real
     public function agregar()
     {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $idProducto = $_POST['id_producto'] ?? null;
+            $idProducto = intval($_POST['id_producto'] ?? 0);
             $nombreBase = $_POST['nombre_base'] ?? '';
             $aroma = $_POST['aroma'] ?? '';
             $presentacion = $_POST['presentacion'] ?? '';
             $precio = floatval($_POST['precio'] ?? 0);
             $cantidad = intval($_POST['cantidad'] ?? 1);
 
-            if ($idProducto && $precio > 0) {
+            if ($idProducto > 0 && $precio > 0 && $cantidad > 0) {
+                require_once 'config/db.php';
+                $db = new Database();
+                $conn = $db->connect();
+
+                $stmtStock = $conn->prepare("SELECT stock FROM productos WHERE id = ? AND estado = 1");
+                $stmtStock->execute([$idProducto]);
+                $prod = $stmtStock->fetch(PDO::FETCH_ASSOC);
+
+                $stockDisponible = $prod ? intval($prod['stock']) : 0;
+
+                if ($stockDisponible <= 0) {
+                    echo json_encode([
+                        'status' => 'error',
+                        'mensaje' => 'Lo sentimos, este producto está agotado.'
+                    ]);
+                    exit;
+                }
+
                 if (!isset($_SESSION['carrito'])) {
                     $_SESSION['carrito'] = [];
                 }
 
-                // Creamos una clave única basada en el ID real del producto en la base de datos
-                $claveUnica = $idProducto;
+                $cantidadActualEnCarrito = isset($_SESSION['carrito'][$idProducto])
+                    ? intval($_SESSION['carrito'][$idProducto]['cantidad'])
+                    : 0;
 
-                if (isset($_SESSION['carrito'][$claveUnica])) {
-                    $_SESSION['carrito'][$claveUnica]['cantidad'] += $cantidad;
+                if (($cantidadActualEnCarrito + $cantidad) > $stockDisponible) {
+                    echo json_encode([
+                        'status' => 'error',
+                        'mensaje' => "Solo quedan {$stockDisponible} unidades disponibles en inventario."
+                    ]);
+                    exit;
+                }
+
+                if (isset($_SESSION['carrito'][$idProducto])) {
+                    $_SESSION['carrito'][$idProducto]['cantidad'] += $cantidad;
                 } else {
-                    $_SESSION['carrito'][$claveUnica] = [
+                    $_SESSION['carrito'][$idProducto] = [
                         'id' => $idProducto,
                         'nombre_base' => $nombreBase,
                         'aroma' => $aroma,
@@ -61,13 +89,11 @@ class CarritoController
                     ];
                 }
 
-                // Calcular la cantidad total de artículos sumando las cantidades de cada producto
                 $totalItems = 0;
                 foreach ($_SESSION['carrito'] as $item) {
                     $totalItems += $item['cantidad'];
                 }
 
-                // Devolver el estado con el total de items actualizado para el badge
                 echo json_encode([
                     'status' => 'success',
                     'mensaje' => 'Producto añadido correctamente',
@@ -204,13 +230,24 @@ class CarritoController
                 $stmtPedido->execute([$clienteId, $totalGeneral, $direccion, $referencia]);
                 $pedidoId = $conn->lastInsertId();
 
-                // 3. Insertar los detalles de los productos del carrito y verificar stock bajo
+                // 3. Validar stock real con bloqueo de fila, guardar detalles y descontar inventario
                 $stmtDetalle = $conn->prepare("INSERT INTO detalle_pedidos (pedido_id, producto_id, cantidad, precio_unitario) VALUES (?, ?, ?, ?)");
                 $stmtStock = $conn->prepare("UPDATE productos SET stock = stock - ? WHERE id = ?");
-                $stmtCheckStock = $conn->prepare("SELECT nombre, stock FROM productos WHERE id = ?");
+                $stmtCheckStock = $conn->prepare("SELECT nombre, stock FROM productos WHERE id = ? FOR UPDATE");
                 $productosStockBajo = [];
 
                 foreach ($carrito as $item) {
+                    $stmtCheckStock->execute([$item['id']]);
+                    $prodActual = $stmtCheckStock->fetch(PDO::FETCH_ASSOC);
+
+                    if (!$prodActual || intval($prodActual['stock']) < intval($item['cantidad'])) {
+                        $conn->rollBack();
+                        $nombreAgotado = $prodActual ? $prodActual['nombre'] : $item['nombre_base'];
+                        $disp = $prodActual ? max(0, intval($prodActual['stock'])) : 0;
+                        header("Location: index.php?action=carrito&error=sin_stock&prod=" . urlencode($nombreAgotado) . "&disp=" . $disp);
+                        exit();
+                    }
+
                     $stmtDetalle->execute([
                         $pedidoId,
                         $item['id'],
@@ -223,13 +260,11 @@ class CarritoController
                         $item['id']
                     ]);
 
-                    $stmtCheckStock->execute([$item['id']]);
-                    $prodActual = $stmtCheckStock->fetch(PDO::FETCH_ASSOC);
-
-                    if ($prodActual && intval($prodActual['stock']) <= 5) {
+                    $stockRestante = intval($prodActual['stock']) - intval($item['cantidad']);
+                    if ($stockRestante <= 5) {
                         $productosStockBajo[] = [
                             'nombre' => $prodActual['nombre'],
-                            'stock'  => intval($prodActual['stock'])
+                            'stock'  => $stockRestante
                         ];
                     }
                 }
@@ -541,9 +576,23 @@ class CarritoController
     // Aumentar en 1 la cantidad de un producto del carrito
     public function aumentarCantidad()
     {
-        $id = $_GET['id'] ?? null;
-        if ($id && isset($_SESSION['carrito'][$id])) {
-            $_SESSION['carrito'][$id]['cantidad']++;
+        $id = intval($_GET['id'] ?? 0);
+        if ($id > 0 && isset($_SESSION['carrito'][$id])) {
+            require_once 'config/db.php';
+            $db = new Database();
+            $conn = $db->connect();
+
+            $stmt = $conn->prepare("SELECT stock FROM productos WHERE id = ? AND estado = 1");
+            $stmt->execute([$id]);
+            $prod = $stmt->fetch(PDO::FETCH_ASSOC);
+            $stockDisponible = $prod ? intval($prod['stock']) : 0;
+
+            if ($_SESSION['carrito'][$id]['cantidad'] < $stockDisponible) {
+                $_SESSION['carrito'][$id]['cantidad']++;
+            } else {
+                header("Location: index.php?action=carrito&error=stock_maximo&max=" . $stockDisponible);
+                exit();
+            }
         }
         header("Location: index.php?action=carrito");
         exit();
