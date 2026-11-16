@@ -31,15 +31,21 @@ require_once 'views/includes/header.php';
     <?php endif; ?>
 
     <?php if (isset($_GET['error'])): ?>
+        <?php
+        $mensajesPerfil = [
+            'campos_vacios'       => 'Por favor, completa todos los campos obligatorios.',
+            'no_coinciden'        => 'La nueva contraseña y la confirmación no coinciden.',
+            'password_incorrecta' => 'La contraseña actual es incorrecta.',
+            'password_corta'      => 'La nueva contraseña debe tener al menos 6 caracteres.',
+            'nombre_invalido'     => 'Ingresa tu nombre y apellido real (solo letras).',
+            'telefono_invalido'   => 'El celular debe tener 10 dígitos y empezar con 09.',
+            'direccion_corta'     => 'La dirección debe tener al menos 10 caracteres.'
+        ];
+        $textoErrorPerfil = $mensajesPerfil[$_GET['error']] ?? 'Ocurrió un error al validar los datos.';
+        ?>
         <div class="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl mb-6 flex items-center gap-3 text-sm font-medium">
             <i class="fa-solid fa-circle-exclamation text-rose-600 text-lg"></i>
-            <span>
-                <?php
-                if ($_GET['error'] == 'campos_vacios') echo "Por favor, completa todos los campos de contraseña.";
-                elseif ($_GET['error'] == 'no_coinciden') echo "La nueva contraseña y la confirmación no coinciden.";
-                elseif ($_GET['error'] == 'password_incorrecta') echo "La contraseña actual es incorrecta.";
-                ?>
-            </span>
+            <span><?php echo htmlspecialchars($textoErrorPerfil); ?></span>
         </div>
     <?php endif; ?>
 
@@ -102,20 +108,23 @@ require_once 'views/includes/header.php';
             </button>
         </div>
 
-        <form action="index.php?action=actualizarPerfil" method="POST" class="p-6 space-y-4">
+        <form id="formEditarPerfil" action="index.php?action=actualizarPerfil" method="POST" class="p-6 space-y-4" novalidate>
             <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1">Nombre Completo</label>
-                <input type="text" name="nombre" required value="<?php echo htmlspecialchars($cliente['nombre']); ?>" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium">
+                <label for="perfNombre" class="block text-sm font-semibold text-slate-700 mb-1">Nombre y Apellido *</label>
+                <input type="text" id="perfNombre" name="nombre" required value="<?php echo htmlspecialchars($cliente['nombre']); ?>" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium transition-colors">
+                <p id="errPerfNombre" class="text-xs text-rose-600 mt-1 hidden">Ingresa nombre y apellido (solo letras).</p>
             </div>
 
             <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1">Teléfono / WhatsApp</label>
-                <input type="text" name="telefono" required value="<?php echo htmlspecialchars($cliente['telefono']); ?>" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium">
+                <label for="perfTelefono" class="block text-sm font-semibold text-slate-700 mb-1">Teléfono / WhatsApp *</label>
+                <input type="tel" id="perfTelefono" name="telefono" required maxlength="10" inputmode="numeric" value="<?php echo htmlspecialchars($cliente['telefono']); ?>" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium transition-colors">
+                <p id="errPerfTelefono" class="text-xs text-rose-600 mt-1 hidden">Debe tener 10 dígitos y empezar con 09.</p>
             </div>
 
             <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1">Dirección Exacta</label>
-                <textarea name="direccion" required class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium h-24"><?php echo htmlspecialchars($cliente['direccion']); ?></textarea>
+                <label for="perfDireccion" class="block text-sm font-semibold text-slate-700 mb-1">Dirección Exacta *</label>
+                <textarea id="perfDireccion" name="direccion" required class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium h-24 transition-colors"><?php echo htmlspecialchars($cliente['direccion']); ?></textarea>
+                <p id="errPerfDireccion" class="text-xs text-rose-600 mt-1 hidden">Detalla tu dirección (mínimo 10 caracteres).</p>
             </div>
 
             <div class="flex justify-end gap-3 pt-4 border-t">
@@ -140,20 +149,38 @@ require_once 'views/includes/header.php';
             </button>
         </div>
 
-        <form action="index.php?action=cambiarPassword" method="POST" class="p-6 space-y-4">
+        <form id="formCambiarPassword" action="index.php?action=cambiarPassword" method="POST" class="p-6 space-y-4" novalidate>
             <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1">Contraseña Actual</label>
-                <input type="password" name="password_actual" required placeholder="••••••••" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium">
+                <label for="passActual" class="block text-sm font-semibold text-slate-700 mb-1">Contraseña Actual *</label>
+                <div id="boxPassActual" class="flex items-center border border-slate-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-teal-500 bg-white">
+                    <input type="password" id="passActual" name="password_actual" required placeholder="••••••••" class="w-full p-3 outline-none font-medium border-0 bg-transparent">
+                    <button type="button" data-toggle-pass="passActual" tabindex="-1" class="btn-toggle-pass px-4 py-3 text-slate-500 hover:text-teal-600 cursor-pointer shrink-0">
+                        <i class="fa-solid fa-eye"></i>
+                    </button>
+                </div>
+                <p id="errPassActual" class="text-xs text-rose-600 mt-1 hidden">Ingresa tu contraseña actual.</p>
             </div>
 
             <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1">Nueva Contraseña</label>
-                <input type="password" name="password_nueva" required placeholder="••••••••" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium">
+                <label for="passNueva" class="block text-sm font-semibold text-slate-700 mb-1">Nueva Contraseña *</label>
+                <div id="boxPassNueva" class="flex items-center border border-slate-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-teal-500 bg-white">
+                    <input type="password" id="passNueva" name="password_nueva" required minlength="6" placeholder="Mínimo 6 caracteres" class="w-full p-3 outline-none font-medium border-0 bg-transparent">
+                    <button type="button" data-toggle-pass="passNueva" tabindex="-1" class="btn-toggle-pass px-4 py-3 text-slate-500 hover:text-teal-600 cursor-pointer shrink-0">
+                        <i class="fa-solid fa-eye"></i>
+                    </button>
+                </div>
+                <p id="errPassNueva" class="text-xs text-rose-600 mt-1 hidden">La nueva contraseña debe tener al menos 6 caracteres.</p>
             </div>
 
             <div>
-                <label class="block text-sm font-semibold text-slate-700 mb-1">Confirmar Nueva Contraseña</label>
-                <input type="password" name="password_confirmar" required placeholder="••••••••" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-medium">
+                <label for="passConfirmar" class="block text-sm font-semibold text-slate-700 mb-1">Confirmar Nueva Contraseña *</label>
+                <div id="boxPassConfirmar" class="flex items-center border border-slate-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-teal-500 bg-white">
+                    <input type="password" id="passConfirmar" name="password_confirmar" required placeholder="Repite la nueva contraseña" class="w-full p-3 outline-none font-medium border-0 bg-transparent">
+                    <button type="button" data-toggle-pass="passConfirmar" tabindex="-1" class="btn-toggle-pass px-4 py-3 text-slate-500 hover:text-teal-600 cursor-pointer shrink-0">
+                        <i class="fa-solid fa-eye"></i>
+                    </button>
+                </div>
+                <p id="errPassConfirmar" class="text-xs text-rose-600 mt-1 hidden">Las contraseñas no coinciden.</p>
             </div>
 
             <div class="flex justify-end gap-3 pt-4 border-t">
@@ -176,7 +203,7 @@ require_once 'views/includes/header.php';
         
         vista.classList.toggle('hidden');
         edicion.classList.toggle('hidden');
-        passCard.classList.add('hidden'); // Ocultar password si está abierto
+        passCard.classList.add('hidden');
     }
 
     function togglePasswordModal() {
@@ -186,8 +213,80 @@ require_once 'views/includes/header.php';
 
         vista.classList.toggle('hidden');
         passCard.classList.toggle('hidden');
-        edicion.classList.add('hidden'); // Ocultar edición si está abierta
+        edicion.classList.add('hidden');
     }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. Activar los botones del ojito en los 3 campos de contraseña
+        document.querySelectorAll('.btn-toggle-pass').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const input = document.getElementById(this.dataset.togglePass);
+                const icono = this.querySelector('i');
+                if (!input || !icono) return;
+
+                const esPass = input.type === 'password';
+                input.type = esPass ? 'text' : 'password';
+                icono.classList.toggle('fa-eye', !esPass);
+                icono.classList.toggle('fa-eye-slash', esPass);
+            });
+        });
+
+        function marcarEstado(input, errorId, esValido) {
+            const errorEl = document.getElementById(errorId);
+            // Si el input está dentro de un contenedor flex con borde (como boxPassNueva), pintamos el contenedor
+            const targetBorde = input.parentElement.classList.contains('flex') ? input.parentElement : input;
+
+            if (esValido) {
+                targetBorde.classList.remove('border-rose-500');
+                targetBorde.classList.add('border-emerald-500');
+                errorEl.classList.add('hidden');
+            } else {
+                targetBorde.classList.remove('border-emerald-500');
+                targetBorde.classList.add('border-rose-500');
+                errorEl.classList.remove('hidden');
+            }
+            return esValido;
+        }
+
+        // Validación Editar Perfil
+        const formPerfil = document.getElementById('formEditarPerfil');
+        const inpNombre = document.getElementById('perfNombre');
+        const inpTel = document.getElementById('perfTelefono');
+        const inpDir = document.getElementById('perfDireccion');
+
+        inpTel.addEventListener('input', function() {
+            this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10);
+            marcarEstado(inpTel, 'errPerfTelefono', /^09[0-9]{8}$/.test(this.value));
+        });
+
+        formPerfil.addEventListener('submit', function(e) {
+            const nom = inpNombre.value.trim().replace(/\s+/g, ' ');
+            const partes = nom.split(' ');
+            const okNom = marcarEstado(inpNombre, 'errPerfNombre', /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]{5,80}$/.test(nom) && partes.length >= 2 && partes[1].length >= 2);
+            const okTel = marcarEstado(inpTel, 'errPerfTelefono', /^09[0-9]{8}$/.test(inpTel.value));
+            const okDir = marcarEstado(inpDir, 'errPerfDireccion', inpDir.value.trim().length >= 10);
+
+            if (!okNom || !okTel || !okDir) e.preventDefault();
+        });
+
+        // Validación Cambiar Contraseña
+        const formPass = document.getElementById('formCambiarPassword');
+        const pActual = document.getElementById('passActual');
+        const pNueva = document.getElementById('passNueva');
+        const pConf = document.getElementById('passConfirmar');
+
+        pConf.addEventListener('input', function() {
+            marcarEstado(pConf, 'errPassConfirmar', pConf.value === pNueva.value && pConf.value.length >= 6);
+        });
+
+        formPass.addEventListener('submit', function(e) {
+            const okAct = marcarEstado(pActual, 'errPassActual', pActual.value.length > 0);
+            const okNue = marcarEstado(pNueva, 'errPassNueva', pNueva.value.length >= 6);
+            const okCon = marcarEstado(pConf, 'errPassConfirmar', pConf.value === pNueva.value && pConf.value.length >= 6);
+
+            if (!okAct || !okNue || !okCon) e.preventDefault();
+        });
+    });
 </script>
 
 <?php require_once 'views/includes/footer.php'; ?>

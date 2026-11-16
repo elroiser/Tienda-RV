@@ -134,13 +134,34 @@ class CarritoController
                 exit();
             }
 
-            // Datos del formulario de envío
-            $nombre = trim($_POST['nombre'] ?? '');
-            $telefono = trim($_POST['telefono'] ?? '');
-            $email = trim($_POST['email'] ?? '');
-            $direccion = trim($_POST['direccion'] ?? '');
+            // Datos del formulario de envío limpios
+            $nombre     = trim(preg_replace('/\s+/', ' ', $_POST['nombre'] ?? ''));
+            $telefono   = preg_replace('/[^0-9]/', '', $_POST['telefono'] ?? '');
+            $email      = trim(strtolower($_POST['email'] ?? ''));
+            $direccion  = trim($_POST['direccion'] ?? '');
             $referencia = trim($_POST['referencia'] ?? '');
-            $ciudad = "Pasaje, El Oro";
+            $ciudad     = "Pasaje, El Oro";
+
+            // Validación estricta en servidor antes de procesar la orden
+            if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]{5,80}$/', $nombre) || count(explode(' ', $nombre)) < 2) {
+                header("Location: index.php?action=checkout&error=nombre_invalido");
+                exit();
+            }
+
+            if (!preg_match('/^09[0-9]{8}$/', $telefono)) {
+                header("Location: index.php?action=checkout&error=telefono_invalido");
+                exit();
+            }
+
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                header("Location: index.php?action=checkout&error=email_invalido");
+                exit();
+            }
+
+            if (strlen($direccion) < 10) {
+                header("Location: index.php?action=checkout&error=direccion_corta");
+                exit();
+            }
 
             // Calcular total general
             $totalGeneral = 0;
@@ -156,12 +177,10 @@ class CarritoController
                 $conn->beginTransaction();
 
                 if (isset($_SESSION['cliente_id'])) {
-                    // Si ya está logueado, usamos su ID directamente
                     $clienteId = $_SESSION['cliente_id'];
                 } else {
-                    // Si no ha iniciado sesión, verificamos si el correo ya existe o creamos uno nuevo
                     $stmtCliente = $conn->prepare("SELECT id FROM clientes WHERE email = ?");
-                    $stmtCliente->execute([$email !== '' ? $email : 'cliente_' . time() . '@rvlimpieza.com']);
+                    $stmtCliente->execute([$email]);
                     $cliente = $stmtCliente->fetch(PDO::FETCH_ASSOC);
 
                     if ($cliente) {
@@ -170,7 +189,7 @@ class CarritoController
                         $stmtInsertCliente = $conn->prepare("INSERT INTO clientes (nombre, email, password, telefono, direccion, ciudad) VALUES (?, ?, ?, ?, ?, ?)");
                         $stmtInsertCliente->execute([
                             $nombre,
-                            $email !== '' ? $email : 'cliente_' . time() . '@rvlimpieza.com',
+                            $email,
                             password_hash('123456', PASSWORD_DEFAULT),
                             $telefono,
                             $direccion,
@@ -192,7 +211,6 @@ class CarritoController
                 $productosStockBajo = [];
 
                 foreach ($carrito as $item) {
-                    // Guardar el detalle del pedido
                     $stmtDetalle->execute([
                         $pedidoId,
                         $item['id'],
@@ -200,13 +218,11 @@ class CarritoController
                         $item['precio']
                     ]);
 
-                    // Reducir el stock del inventario automáticamente
                     $stmtStock->execute([
                         $item['cantidad'],
                         $item['id']
                     ]);
 
-                    // Verificar cuánto stock quedó tras el descuento
                     $stmtCheckStock->execute([$item['id']]);
                     $prodActual = $stmtCheckStock->fetch(PDO::FETCH_ASSOC);
 
@@ -241,7 +257,6 @@ class CarritoController
                 $textoWa .= "*💳 Método:* Efectivo Contra Entrega\n\n";
                 $textoWa .= "_Hola, confirmo mi pedido para que me lo envíen._";
 
-                // Guardar la URL de WhatsApp en una sesión temporal
                 $_SESSION['whatsapp_url'] = "https://wa.me/" . $telefonoPapa . "?text=" . urlencode($textoWa);
 
                 // --- INICIO DE NOTIFICACIÓN FIREBASE BLINDADA ---
@@ -249,27 +264,23 @@ class CarritoController
                     $factory = (new Factory)->withServiceAccount(__DIR__ . '/../tienda-rv-b288dc407207.json');
                     $messaging = $factory->createMessaging();
 
-                    // Consultamos todos los tokens de los administradores guardados en MySQL
                     $stmtTokens = $conn->prepare("SELECT id, token FROM admin_tokens");
                     $stmtTokens->execute();
                     $adminsTokens = $stmtTokens->fetchAll(PDO::FETCH_ASSOC);
 
                     if (!empty($adminsTokens)) {
                         foreach ($adminsTokens as $adminToken) {
-                            // 1. Notificación de Nuevo Pedido
                             try {
                                 $mensaje = CloudMessage::withTarget('token', $adminToken['token'])
                                     ->withNotification(Notification::create(
                                         "¡Nuevo Pedido #" . $pedidoId . "!",
                                         $nombre . " acaba de hacer una compra por $" . number_format($totalGeneral, 2)
                                     ));
-
                                 $messaging->send($mensaje);
                             } catch (\Exception $exToken) {
                                 error_log("Fallo al enviar notificación de pedido al token ID " . $adminToken['id'] . ": " . $exToken->getMessage());
                             }
 
-                            // 2. Notificación de Alerta de Stock Bajo (si algún producto quedó con 5 o menos unidades)
                             foreach ($productosStockBajo as $pBajo) {
                                 try {
                                     $mensajeStock = CloudMessage::withTarget('token', $adminToken['token'])
@@ -277,7 +288,6 @@ class CarritoController
                                             "⚠️ ¡Alerta de Stock Bajo!",
                                             "El producto \"" . $pBajo['nombre'] . "\" tiene menos de 6 unidades (Quedan: " . $pBajo['stock'] . ")."
                                         ));
-
                                     $messaging->send($mensajeStock);
                                 } catch (\Exception $exStock) {
                                     error_log("Fallo al enviar alerta de stock al token ID " . $adminToken['id'] . ": " . $exStock->getMessage());
@@ -288,15 +298,10 @@ class CarritoController
                 } catch (Exception $e) {
                     error_log("Error general de Firebase: " . $e->getMessage());
                 }
-                // --- FIN DE NOTIFICACIÓN FIREBASE BLINDADA ---
 
-                // Confirmar transacción en la base de datos
                 $conn->commit();
-
-                // Vaciar el carrito
                 unset($_SESSION['carrito']);
 
-                // Redirigir a la vista de éxito
                 header("Location: index.php?action=exito&pedido=" . $pedidoId);
                 exit();
             } catch (Exception $e) {
@@ -451,12 +456,28 @@ class CarritoController
     }
 
     // Actualizar los datos del perfil en la base de datos
+    // Actualizar los datos del perfil en la base de datos
     public function actualizarPerfil()
     {
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['cliente_id'])) {
-            $nombre = trim($_POST['nombre'] ?? '');
-            $telefono = trim($_POST['telefono'] ?? '');
+            $nombre    = trim(preg_replace('/\s+/', ' ', $_POST['nombre'] ?? ''));
+            $telefono  = preg_replace('/[^0-9]/', '', $_POST['telefono'] ?? '');
             $direccion = trim($_POST['direccion'] ?? '');
+
+            if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]{5,80}$/', $nombre) || count(explode(' ', $nombre)) < 2) {
+                header("Location: index.php?action=miPerfil&error=nombre_invalido");
+                exit();
+            }
+
+            if (!preg_match('/^09[0-9]{8}$/', $telefono)) {
+                header("Location: index.php?action=miPerfil&error=telefono_invalido");
+                exit();
+            }
+
+            if (strlen($direccion) < 10) {
+                header("Location: index.php?action=miPerfil&error=direccion_corta");
+                exit();
+            }
 
             require_once 'config/db.php';
             $db = new Database();
@@ -465,13 +486,13 @@ class CarritoController
             $stmt = $conn->prepare("UPDATE clientes SET nombre = ?, telefono = ?, direccion = ? WHERE id = ?");
             $stmt->execute([$nombre, $telefono, $direccion, $_SESSION['cliente_id']]);
 
-            // Actualizar el nombre en la sesión actual
             $_SESSION['cliente_nombre'] = $nombre;
 
             header("Location: index.php?action=miPerfil&actualizado=1");
             exit();
         }
     }
+
     // Procesar el cambio de contraseña del cliente
     public function cambiarPassword()
     {
@@ -485,6 +506,11 @@ class CarritoController
                 exit();
             }
 
+            if (strlen($passwordNueva) < 6) {
+                header("Location: index.php?action=miPerfil&error=password_corta");
+                exit();
+            }
+
             if ($passwordNueva !== $passwordConfirmar) {
                 header("Location: index.php?action=miPerfil&error=no_coinciden");
                 exit();
@@ -494,13 +520,11 @@ class CarritoController
             $db = new Database();
             $conn = $db->connect();
 
-            // Consultar la contraseña actual almacenada
             $stmt = $conn->prepare("SELECT password FROM clientes WHERE id = ?");
             $stmt->execute([$_SESSION['cliente_id']]);
             $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($cliente && password_verify($passwordActual, $cliente['password'])) {
-                // Encriptar la nueva contraseña
                 $nuevaHash = password_hash($passwordNueva, PASSWORD_DEFAULT);
 
                 $stmtUpdate = $conn->prepare("UPDATE clientes SET password = ? WHERE id = ?");

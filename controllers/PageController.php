@@ -123,41 +123,88 @@ class PageController
         require_once 'views/registro.php';
     }
 
-    public function procesarRegistro() {
+    public function procesarRegistro()
+    {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $nombre = trim($_POST['nombre'] ?? '');
-            $email = trim($_POST['email'] ?? '');
-            $password = $_POST['password'] ?? '';
-            $telefono = trim($_POST['telefono'] ?? '');
+            $nombre    = trim(preg_replace('/\s+/', ' ', $_POST['nombre'] ?? ''));
+            $email     = trim(strtolower($_POST['email'] ?? ''));
+            $password  = $_POST['password'] ?? '';
+            $telefono  = preg_replace('/[^0-9]/', '', $_POST['telefono'] ?? '');
             $direccion = trim($_POST['direccion'] ?? '');
-            $redirect = $_POST['redirect'] ?? 'home';
+            $redirect  = $_POST['redirect'] ?? 'home';
+
+            // Guardar datos previos en sesión por si falla una validación y hay que devolverlos
+            $_SESSION['form_registro'] = [
+                'nombre'    => $nombre,
+                'email'     => $email,
+                'telefono'  => $telefono,
+                'direccion' => $direccion
+            ];
+
+            // 1. Validar campos vacíos
+            if ($nombre === '' || $email === '' || $password === '' || $telefono === '' || $direccion === '') {
+                header("Location: index.php?action=registro&error=campos_vacios&redirect=" . urlencode($redirect));
+                exit();
+            }
+
+            // 2. Validar nombre (solo letras/espacios y al menos 2 palabras: Nombre y Apellido)
+            if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]{5,80}$/', $nombre) || count(explode(' ', $nombre)) < 2) {
+                header("Location: index.php?action=registro&error=nombre_invalido&redirect=" . urlencode($redirect));
+                exit();
+            }
+
+            // 3. Validar formato de correo electrónico
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                header("Location: index.php?action=registro&error=email_invalido&redirect=" . urlencode($redirect));
+                exit();
+            }
+
+            // 4. Validar contraseña mínima de 6 caracteres
+            if (strlen($password) < 6) {
+                header("Location: index.php?action=registro&error=password_corta&redirect=" . urlencode($redirect));
+                exit();
+            }
+
+            // 5. Validar celular ecuatoriano (10 dígitos empezando con 09)
+            if (!preg_match('/^09[0-9]{8}$/', $telefono)) {
+                header("Location: index.php?action=registro&error=telefono_invalido&redirect=" . urlencode($redirect));
+                exit();
+            }
+
+            // 6. Validar dirección mínima
+            if (strlen($direccion) < 10) {
+                header("Location: index.php?action=registro&error=direccion_corta&redirect=" . urlencode($redirect));
+                exit();
+            }
 
             require_once 'config/db.php';
             $db = new Database();
             $conn = $db->connect();
 
-            // Verificar si el correo ya existe
+            // 7. Verificar si el correo ya existe
             $stmtCheck = $conn->prepare("SELECT id FROM clientes WHERE email = ?");
             $stmtCheck->execute([$email]);
             if ($stmtCheck->fetch()) {
-                header("Location: index.php?action=registro&error=email_existe");
+                header("Location: index.php?action=registro&error=email_existe&redirect=" . urlencode($redirect));
                 exit();
             }
 
-            // Encriptar contraseña y registrar
+            // 8. Encriptar contraseña y registrar
             $hash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $conn->prepare("INSERT INTO clientes (nombre, email, password, telefono, direccion) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$nombre, $email, $hash, $telefono, $direccion]);
             $nuevoId = $conn->lastInsertId();
 
-            // 🔥 AUTO LOGIN: Iniciamos la sesión automáticamente
+            // Limpiar datos temporales del formulario
+            unset($_SESSION['form_registro']);
+
+            // AUTO LOGIN
             if (session_status() === PHP_SESSION_NONE) {
                 session_start();
             }
             $_SESSION['cliente_id'] = $nuevoId;
             $_SESSION['cliente_nombre'] = $nombre;
 
-            // Redirigir según de dónde venía
             if ($redirect === 'checkout') {
                 header("Location: index.php?action=checkout");
             } else {
