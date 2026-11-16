@@ -148,8 +148,6 @@ class CarritoController
                 $totalGeneral += $item['precio'] * $item['cantidad'];
             }
 
-
-
             require_once 'config/db.php';
             $db = new Database();
             $conn = $db->connect();
@@ -157,9 +155,6 @@ class CarritoController
             try {
                 $conn->beginTransaction();
 
-                // ----------------------------------------------------
-                // AQUÍ ES EXACTAMENTE DÓNDE VA EL BLOQUE QUE ME PEDISTE:
-                // ----------------------------------------------------
                 if (isset($_SESSION['cliente_id'])) {
                     // Si ya está logueado, usamos su ID directamente
                     $clienteId = $_SESSION['cliente_id'];
@@ -184,18 +179,17 @@ class CarritoController
                         $clienteId = $conn->lastInsertId();
                     }
                 }
-                // ----------------------------------------------------
 
                 // 2. Insertar el pedido en la tabla pedidos
                 $stmtPedido = $conn->prepare("INSERT INTO pedidos (cliente_id, total, estado, metodo_pago, direccion_envio, referencia_envio) VALUES (?, ?, 'Pendiente', 'Efectivo Contra Entrega', ?, ?)");
                 $stmtPedido->execute([$clienteId, $totalGeneral, $direccion, $referencia]);
                 $pedidoId = $conn->lastInsertId();
 
-                // 3. Insertar los detalles de los productos del carrito
+                // 3. Insertar los detalles de los productos del carrito y verificar stock bajo
                 $stmtDetalle = $conn->prepare("INSERT INTO detalle_pedidos (pedido_id, producto_id, cantidad, precio_unitario) VALUES (?, ?, ?, ?)");
-
-                // NUEVO: Preparar la consulta para restar el stock de la base de datos
                 $stmtStock = $conn->prepare("UPDATE productos SET stock = stock - ? WHERE id = ?");
+                $stmtCheckStock = $conn->prepare("SELECT nombre, stock FROM productos WHERE id = ?");
+                $productosStockBajo = [];
 
                 foreach ($carrito as $item) {
                     // Guardar el detalle del pedido
@@ -206,15 +200,26 @@ class CarritoController
                         $item['precio']
                     ]);
 
-                    // 🔥 REDUCIR EL STOCK DEL INVENTARIO AUTOMÁTICAMENTE
+                    // Reducir el stock del inventario automáticamente
                     $stmtStock->execute([
                         $item['cantidad'],
                         $item['id']
                     ]);
+
+                    // Verificar cuánto stock quedó tras el descuento
+                    $stmtCheckStock->execute([$item['id']]);
+                    $prodActual = $stmtCheckStock->fetch(PDO::FETCH_ASSOC);
+
+                    if ($prodActual && intval($prodActual['stock']) <= 5) {
+                        $productosStockBajo[] = [
+                            'nombre' => $prodActual['nombre'],
+                            'stock'  => intval($prodActual['stock'])
+                        ];
+                    }
                 }
 
-                /// 🔥 CREAR MENSAJE PARA WHATSAPP
-                $telefonoPapa = "593968865893"; // El número de tu papá
+                // CREAR MENSAJE PARA WHATSAPP
+                $telefonoPapa = "593968865893";
 
                 $textoWa = "*¡NUEVO PEDIDO - RV LIMPIEZA!* 🧼\n\n";
                 $textoWa .= "*Orden N°:* " . $pedidoId . "\n";
@@ -251,8 +256,8 @@ class CarritoController
 
                     if (!empty($adminsTokens)) {
                         foreach ($adminsTokens as $adminToken) {
+                            // 1. Notificación de Nuevo Pedido
                             try {
-                                // Enviamos la notificación de manera independiente a cada token
                                 $mensaje = CloudMessage::withTarget('token', $adminToken['token'])
                                     ->withNotification(Notification::create(
                                         "¡Nuevo Pedido #" . $pedidoId . "!",
@@ -261,11 +266,22 @@ class CarritoController
 
                                 $messaging->send($mensaje);
                             } catch (\Exception $exToken) {
-                                // Si un token específico es inválido o expiró, lo registramos pero el bucle sigue con los demás
-                                error_log("Fallo al enviar notificación al token ID " . $adminToken['id'] . ": " . $exToken->getMessage());
+                                error_log("Fallo al enviar notificación de pedido al token ID " . $adminToken['id'] . ": " . $exToken->getMessage());
+                            }
 
-                                // Opcional: Si quieres limpiar automáticamente los tokens vencidos de la BD, puedes descomentar la siguiente línea:
-                                // $conn->prepare("DELETE FROM admin_tokens WHERE id = ?")->execute([$adminToken['id']]);
+                            // 2. Notificación de Alerta de Stock Bajo (si algún producto quedó con 5 o menos unidades)
+                            foreach ($productosStockBajo as $pBajo) {
+                                try {
+                                    $mensajeStock = CloudMessage::withTarget('token', $adminToken['token'])
+                                        ->withNotification(Notification::create(
+                                            "⚠️ ¡Alerta de Stock Bajo!",
+                                            "El producto \"" . $pBajo['nombre'] . "\" tiene menos de 6 unidades (Quedan: " . $pBajo['stock'] . ")."
+                                        ));
+
+                                    $messaging->send($mensajeStock);
+                                } catch (\Exception $exStock) {
+                                    error_log("Fallo al enviar alerta de stock al token ID " . $adminToken['id'] . ": " . $exStock->getMessage());
+                                }
                             }
                         }
                     }
