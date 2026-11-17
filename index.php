@@ -31,6 +31,9 @@ switch ($action) {
     case 'misPedidos':
         $carritoController->misPedidos();
         break;
+    case 'notaVenta':
+        $carritoController->notaVenta();
+        break;
     case 'repetirPedido':
         $carritoController->repetirPedido();
         break;

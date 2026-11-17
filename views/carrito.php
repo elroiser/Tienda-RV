@@ -27,6 +27,14 @@
         </div>
     <?php endif; ?>
 
+    <?php if (!empty($_SESSION['aviso_carrito_repetir'])): ?>
+        <div class="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3.5 rounded-xl mb-6 flex items-start gap-3 text-sm font-medium">
+            <i class="fa-solid fa-circle-info text-amber-600 text-lg mt-0.5"></i>
+            <span><?php echo $_SESSION['aviso_carrito_repetir']; ?></span>
+        </div>
+        <?php unset($_SESSION['aviso_carrito_repetir']); ?>
+    <?php endif; ?>
+
     <?php if (empty($carrito)): ?>
         <div class="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <i class="fa-solid fa-cart-shopping text-5xl text-slate-300 mb-4"></i>

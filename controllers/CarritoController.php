@@ -269,30 +269,8 @@ class CarritoController
                     }
                 }
 
-                // CREAR MENSAJE PARA WHATSAPP
-                $telefonoPapa = "593968865893";
-
-                $textoWa = "*¡NUEVO PEDIDO - RV LIMPIEZA!* 🧼\n\n";
-                $textoWa .= "*Orden N°:* " . $pedidoId . "\n";
-                $textoWa .= "*Cliente:* " . $nombre . "\n";
-                $textoWa .= "*Teléfono:* " . $telefono . "\n";
-                $textoWa .= "*Dirección:* " . $direccion . "\n";
-
-                if (!empty($referencia)) {
-                    $textoWa .= "*Ref:* " . $referencia . "\n";
-                }
-
-                $textoWa .= "\n*🛒 DETALLE DEL PEDIDO:*\n";
-                foreach ($carrito as $item) {
-                    $nombreAroma = !empty($item['aroma']) ? " (" . $item['aroma'] . ")" : "";
-                    $textoWa .= "- " . $item['cantidad'] . "x " . $item['nombre_base'] . $nombreAroma . " [" . $item['presentacion'] . "] -> $" . number_format($item['precio'] * $item['cantidad'], 2) . "\n";
-                }
-
-                $textoWa .= "\n*💰 TOTAL A PAGAR:* $" . number_format($totalGeneral, 2) . "\n";
-                $textoWa .= "*💳 Método:* Efectivo Contra Entrega\n\n";
-                $textoWa .= "_Hola, confirmo mi pedido para que me lo envíen._";
-
-                $_SESSION['whatsapp_url'] = "https://wa.me/" . $telefonoPapa . "?text=" . urlencode($textoWa);
+                // Guardar ID del pedido recién creado para permitir ver su Nota de Venta
+                $_SESSION['ultimo_pedido_id'] = $pedidoId;
 
                 // --- INICIO DE NOTIFICACIÓN FIREBASE BLINDADA ---
                 try {
@@ -397,7 +375,59 @@ class CarritoController
         require_once 'views/mis_pedidos.php';
     }
 
+    // Generar vista de Nota de Venta imprimible / descargable como PDF
+    public function notaVenta()
+    {
+        $pedidoId = intval($_GET['id'] ?? 0);
+        if ($pedidoId <= 0) {
+            header("Location: index.php?action=home");
+            exit();
+        }
+
+        require_once 'config/db.php';
+        $db = new Database();
+        $conn = $db->connect();
+
+        // Obtener cabecera del pedido y datos del cliente
+        $stmt = $conn->prepare("
+            SELECT p.*, c.nombre AS cliente_nombre, c.telefono AS cliente_telefono, c.email AS cliente_email
+            FROM pedidos p
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE p.id = ?
+        ");
+        $stmt->execute([$pedidoId]);
+        $pedido = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$pedido) {
+            header("Location: index.php?action=home");
+            exit();
+        }
+
+        // Seguridad: permitir acceso al dueño del pedido o al administrador logueado
+        $esDueno = isset($_SESSION['cliente_id']) && intval($_SESSION['cliente_id']) === intval($pedido['cliente_id']);
+        $esAdmin = isset($_SESSION['admin_id']);
+        $esReciente = isset($_SESSION['ultimo_pedido_id']) && intval($_SESSION['ultimo_pedido_id']) === $pedidoId;
+
+        if (!$esDueno && !$esAdmin && !$esReciente) {
+            header("Location: index.php?action=login");
+            exit();
+        }
+
+        // Obtener detalle de productos (galones/litros/unidades)
+        $stmtDet = $conn->prepare("
+            SELECT dp.*, pr.nombre AS producto_nombre
+            FROM detalle_pedidos dp
+            JOIN productos pr ON dp.producto_id = pr.id
+            WHERE dp.pedido_id = ?
+        ");
+        $stmtDet->execute([$pedidoId]);
+        $detalles = $stmtDet->fetchAll(PDO::FETCH_ASSOC);
+
+        require_once 'views/nota_venta.php';
+    }
+
     // Volver a pedir: cargar todos los productos de una orden pasada al carrito actual
+    // Volver a pedir: cargar productos disponibles de una orden pasada respetando el stock real
     public function repetirPedido()
     {
         if (!isset($_SESSION['cliente_id'])) {
@@ -423,48 +453,98 @@ class CarritoController
             exit();
         }
 
-        // Obtener los productos activos con su precio actual en catálogo
+        // Obtener los productos del pedido junto con su stock y precio actual
         $stmtItems = $conn->prepare("
-            SELECT dp.producto_id, dp.cantidad, pr.nombre, pr.precio
+            SELECT dp.producto_id, dp.cantidad, pr.nombre, pr.precio, pr.stock, pr.estado
             FROM detalle_pedidos dp
             JOIN productos pr ON dp.producto_id = pr.id
-            WHERE dp.pedido_id = ? AND pr.estado = 1
+            WHERE dp.pedido_id = ?
         ");
         $stmtItems->execute([$pedidoId]);
         $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
-        if (!empty($items)) {
-            if (!isset($_SESSION['carrito'])) {
-                $_SESSION['carrito'] = [];
+        if (empty($items)) {
+            header("Location: index.php?action=misPedidos&aviso=orden_vacia");
+            exit();
+        }
+
+        if (!isset($_SESSION['carrito'])) {
+            $_SESSION['carrito'] = [];
+        }
+
+        $agregadosCount = 0;
+        $omitidos = [];
+        $ajustados = [];
+
+        foreach ($items as $item) {
+            $idProd = intval($item['producto_id']);
+            $nombreCompleto = $item['nombre'];
+            $stockDisp = (intval($item['estado']) === 1) ? max(0, intval($item['stock'])) : 0;
+            $cantDeseada = intval($item['cantidad']);
+
+            // Extraer presentación entre paréntesis
+            $pos = strrpos($nombreCompleto, '(');
+            if ($pos !== false) {
+                $nombreBase = trim(substr($nombreCompleto, 0, $pos));
+                $presentacion = trim(substr($nombreCompleto, $pos + 1, -1));
+            } else {
+                $nombreBase = trim($nombreCompleto);
+                $presentacion = "Unidad";
             }
 
-            foreach ($items as $item) {
-                $idProd = $item['producto_id'];
-                $nombreCompleto = $item['nombre'];
-
-                // Extraer presentación entre paréntesis para mantener compatibilidad con carrito.php
-                $pos = strrpos($nombreCompleto, '(');
-                if ($pos !== false) {
-                    $nombreBase = trim(substr($nombreCompleto, 0, $pos));
-                    $presentacion = trim(substr($nombreCompleto, $pos + 1, -1));
-                } else {
-                    $nombreBase = trim($nombreCompleto);
-                    $presentacion = "Unidad";
-                }
-
-                if (isset($_SESSION['carrito'][$idProd])) {
-                    $_SESSION['carrito'][$idProd]['cantidad'] += intval($item['cantidad']);
-                } else {
-                    $_SESSION['carrito'][$idProd] = [
-                        'id' => $idProd,
-                        'nombre_base' => $nombreBase,
-                        'aroma' => '',
-                        'presentacion' => $presentacion,
-                        'precio' => floatval($item['precio']),
-                        'cantidad' => intval($item['cantidad'])
-                    ];
-                }
+            if ($stockDisp <= 0) {
+                $omitidos[] = $nombreCompleto;
+                continue;
             }
+
+            $enCarritoActual = isset($_SESSION['carrito'][$idProd]) ? intval($_SESSION['carrito'][$idProd]['cantidad']) : 0;
+            $espacioDisponible = $stockDisp - $enCarritoActual;
+
+            if ($espacioDisponible <= 0) {
+                $ajustados[] = "{$nombreCompleto} (límite máximo de {$stockDisp} uds en carrito)";
+                continue;
+            }
+
+            $cantFinalAgregar = min($cantDeseada, $espacioDisponible);
+
+            if ($cantFinalAgregar < $cantDeseada) {
+                $ajustados[] = "{$nombreCompleto} (ajustado a {$cantFinalAgregar} de {$cantDeseada} uds por stock)";
+            }
+
+            if (isset($_SESSION['carrito'][$idProd])) {
+                $_SESSION['carrito'][$idProd]['cantidad'] += $cantFinalAgregar;
+            } else {
+                $_SESSION['carrito'][$idProd] = [
+                    'id' => $idProd,
+                    'nombre_base' => $nombreBase,
+                    'aroma' => '',
+                    'presentacion' => $presentacion,
+                    'precio' => floatval($item['precio']),
+                    'cantidad' => $cantFinalAgregar
+                ];
+            }
+            $agregadosCount++;
+        }
+
+        // Si ningún producto pudo añadirse porque todos estaban agotados
+        if ($agregadosCount === 0) {
+            $_SESSION['aviso_pedidos'] = !empty($omitidos)
+                ? "No se pudo repetir la orden #{$pedidoId} porque los siguientes productos están agotados temporalmente: " . implode(', ', $omitidos) . "."
+                : "Ya tienes en tu carrito el máximo de unidades disponibles para los productos de la orden #{$pedidoId}.";
+            header("Location: index.php?action=misPedidos");
+            exit();
+        }
+
+        // Si se agregaron algunos pero otros se omitieron o ajustaron por stock
+        if (!empty($omitidos) || !empty($ajustados)) {
+            $notas = [];
+            if (!empty($omitidos)) {
+                $notas[] = "Productos agotados omitidos: <b>" . htmlspecialchars(implode(', ', $omitidos)) . "</b>";
+            }
+            if (!empty($ajustados)) {
+                $notas[] = "Cantidades ajustadas al inventario: <b>" . htmlspecialchars(implode(', ', $ajustados)) . "</b>";
+            }
+            $_SESSION['aviso_carrito_repetir'] = implode('. ', $notas) . ".";
         }
 
         header("Location: index.php?action=carrito");

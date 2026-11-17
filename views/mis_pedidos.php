@@ -34,6 +34,14 @@
         </a>
     </div>
 
+    <?php if (!empty($_SESSION['aviso_pedidos'])): ?>
+        <div class="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3.5 rounded-xl mb-6 flex items-start gap-3 text-sm font-medium">
+            <i class="fa-solid fa-triangle-exclamation text-amber-600 text-lg mt-0.5"></i>
+            <span><?php echo htmlspecialchars($_SESSION['aviso_pedidos']); ?></span>
+        </div>
+        <?php unset($_SESSION['aviso_pedidos']); ?>
+    <?php endif; ?>
+    
     <?php if (empty($pedidos)): ?>
         <div class="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <i class="fa-solid fa-box-open text-5xl text-slate-300 mb-4"></i>
@@ -44,6 +52,7 @@
             </a>
         </div>
     <?php else: ?>
+        
         <div class="space-y-4">
             <?php foreach ($pedidos as $pedido): ?>
                 <?php
@@ -160,10 +169,10 @@
 
                         <!-- Botones de Acción (Reimprimir y Volver a Pedir) -->
                         <div class="no-print flex flex-col sm:flex-row justify-end gap-3">
-                            <button type="button" onclick="imprimirNotaPedido(<?php echo $pedido['id']; ?>)"
+                            <a href="index.php?action=notaVenta&id=<?php echo $pedido['id']; ?>" target="_blank"
                                 class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 px-4 py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2">
-                                <i class="fa-solid fa-print text-slate-500"></i> Reimprimir Nota
-                            </button>
+                                <i class="fa-solid fa-file-pdf text-rose-500"></i> Nota de Venta (PDF)
+                            </a>
 
                             <a href="index.php?action=repetirPedido&id=<?php echo $pedido['id']; ?>"
                                 class="bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-colors flex items-center justify-center gap-2">
